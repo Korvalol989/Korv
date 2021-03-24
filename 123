@@ -1,0 +1,340 @@
+import vk_api
+from vk_api.longpoll import VkLongPoll, VkEventType
+import requests
+import datetime as d
+from bs4 import BeautifulSoup as bs
+import re
+import time
+
+mail = 'Lunin9889@gmail.com'
+passwd = '#IAmLoger666'
+token = '9ccb93d7b753677520d320cdba9d11ac426f265fbdf93ad2c3fefb5eb0dcd3675c8b2391e4e11c60c4648'
+
+req = requests.Session()
+
+
+def auth():
+    try:
+        data = {
+            'mail': mail,
+            'pass': passwd,
+            'login': 'Войти'
+        }
+        reqt = req.post(url='http://ulog.union-u.net/login.php', data=data)
+        if 'Вход не удался' in reqt.text:
+            print('Необходимо принять аксепт')
+        reqt = req.get(url='http://ulog.union-u.net/login.php', data=data)
+        if 'DB:OLD' in reqt.text:
+            req.post(url='http://ulog.union-u.net/db_events_change.php')
+            print('DB changed to DB:NEW')
+        print('Logged in')
+    except Exception:
+        print('Authentification failed, stopping process')
+        exit()
+
+
+def main():
+    vk_session = vk_api.VkApi(token=token)
+    vk = vk_session.get_api()
+    longpoll = VkLongPoll(vk_session)
+    try:
+        vk.groups.enableOnline(group_id=201188921)
+        print('Turned on online')
+    except Exception:
+        print('Already online')
+        pass
+    for event in longpoll.listen():
+        if event.type == VkEventType.MESSAGE_NEW and event.to_me or event.to_me and event.peer_id == 222334255:
+            try:
+                if str(event.message).startswith("/"):
+                    vk.messages.send(
+                        peer_id=event.peer_id,
+                        message='Ожидайте.',
+                        random_id=0
+                    )
+                print('TIME:', time.asctime(), 'FROM:', event.peer_id, 'MESSAGE:', event.text, end='\n')
+                if str(event.message).startswith("/post"):
+                    datas = {
+                        'mail': mail,
+                        'pass': passwd,
+                        'login': 'Войти'
+                    }
+                    counter = str(event.text.split(' ')[1])
+                    a = req.post(url=counter, data=datas)
+                    print(a.text)
+
+                if str(event.message).startswith("/log"):
+                    try:
+                        counter = int(event.text.split(' ')[1])
+                    except:
+                        counter = 1
+                        vk.messages.send(
+                            peer_id=event.peer_id,
+                            message='Команда введена неверно, выгружается 1 страница логов',
+                            random_id=0
+                        )
+                    file = open('logs.txt', 'w', encoding='UTF-8')
+                    listen = 0
+                    dates = [d.date.today().day, d.date.today().month, d.date.today().year]
+                    while listen < counter:
+                        print(listen)
+                        while True:
+                            try:
+                                log = req.get(
+                                    'http://ulog.union-u.net/event.php?server=15&type=&'
+                                    'day={}&mount={}&year={}&go=Посмотреть&hour=all&listen={}'.format(
+                                        dates[0], dates[1], dates[2], listen), timeout=5).text
+                                break
+                            except:
+                                pass
+                        soup = bs(log, "html.parser").find_all('table')[4]('tr')
+                        arr_soup = str(soup).split('<tr>')
+                        new_soup = ''
+                        for i in range(len(arr_soup)):
+                            new_soup += arr_soup[i] + '\n'
+                        new_soup = re.sub('<[^>]*>', '', str(new_soup))
+                        file.write(str(new_soup) + '\n')
+                        listen += 1
+                    file.close()
+                    url = vk.docs.getMessagesUploadServer(peer_id=event.peer_id)['upload_url']
+                    request = requests.post(url, files={'file': open('logs.txt', "r", encoding='UTF-8')})
+                    params = {
+                        'file': request.json()['file']
+                    }
+                    doc = vk.docs.save(**params)
+                    owner_id = doc['doc']['owner_id']
+                    doc_id = doc['doc']['id']
+                    vk.messages.send(
+                        peer_id=event.peer_id,
+                        message=f'Выгружено {counter} страниц логов:',
+                        attachment=f'doc{owner_id}_{doc_id}',
+                        random_id=0
+                    )
+
+                elif str(event.message).startswith("/player"):
+                    content = str(event.message).split(' ')
+                    file = open('logs.txt', 'w', encoding='UTF-8')
+                    if int(content[2]) == -7:
+                        nick = content[1]
+                        while True:
+                            print('aa')
+                            try:
+                                reqt = req.get(
+                                    f'http://ulog.union-u.net/nickname.php?iddb={nick}&server=15&day=0&mount=0&year=-7&go=Посмотреть&type=',
+                                    timeout=10).text  # ДЛЯ ПОИСКА ПО ID
+                                break
+                            except:
+                                pass
+                    else:
+                        nick, day, month, year = content[1], content[2], content[3], content[4]
+                        while True:
+                            try:
+                                reqt = req.get(
+                                    f'http://ulog.union-u.net/nickname.php?iddb={nick}&server=15&day={day}&mount={month}&year={year}&go=Посмотреть&type=',
+                                    timeout=5).text  # ДЛЯ ПОИСКА ПО ID
+                                break
+                            except:
+                                pass
+                    soup = bs(reqt, 'html.parser').find_all('table')[5]('tr')
+                    arr_soup = str(soup).split('<tr>')
+                    str_soup = ''
+                    for i in range(len(arr_soup)):
+                        str_soup += arr_soup[i] + '\n'
+                    file.write(re.sub(r'<.*?>', '', str_soup))
+                    file.close()
+                    url = vk.docs.getMessagesUploadServer(peer_id=event.peer_id)['upload_url']
+                    request = requests.post(url, files={'file': open('logs.txt', "r", encoding='UTF-8')})
+                    params = {'file': request.json()['file']
+                              }
+                    doc = vk.docs.save(**params)
+                    owner_id = doc['doc']['owner_id']
+                    id = doc['doc']['id']
+                    if int(content[2]) == -7:
+                        message = 'последнюю неделю'
+                    else:
+                        message = f'{day}.{month}.{year}'
+                    vk.messages.send(
+                        peer_id=event.peer_id,
+                        message=f'Логи пользователя ID {nick} за {message}',
+                        attachment=f'doc{owner_id}_{id}',
+                        random_id=0
+                    )
+
+                elif str(event.message).startswith('/gap'):
+                    months = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+                    content = str(event.message).split(' ')
+                    file = open('logs.txt', 'w', encoding='UTF-8')
+                    nick, day, month, year, dday, dmonth, dyear = int(content[1]), int(content[2]), int(content[3]), int(content[
+                        4]), int(content[5]), int(content[6]), int(content[7])
+                    day1 = day
+                    month1 = month
+                    year1 = year
+                    while True:
+                        if day1 == dday and month1 == dmonth:
+                            break
+                        if int(day1) >= months[int(month1) - 1]:
+                            month1 += 1
+                            day1 = 1
+                        if int(month1) > 12:
+                            year1 += 1
+                            month1 = 1
+                        print(day1, month1)
+                        while True:
+                            try:
+                                reqt = req.get(
+                                    f'http://ulog.union-u.net/nickname.php?iddb={nick}&server=15&day={day1}&mount={month1}&year={year1}&go=Посмотреть&type=',
+                                    timeout=10).text  # ДЛЯ ПОИСКА ПО ID
+                                break
+                            except:
+                                pass
+                        soup = bs(reqt, 'html.parser').find_all('table')[5]('tr')
+                        arr_soup = str(soup).split('<tr>')
+                        str_soup = ''
+                        for i in range(len(arr_soup)):
+                            str_soup += arr_soup[i] + '\n'
+                        file.write(re.sub(r'<.*?>', '', str_soup))
+                        day1 += 1
+                    file.close()
+                    url = vk.docs.getMessagesUploadServer(peer_id=event.peer_id)['upload_url']
+                    request = requests.post(url, files={'file': open('logs.txt', "r", encoding='UTF-8')})
+                    params = {'file': request.json()['file']
+                              }
+                    doc = vk.docs.save(**params)
+                    owner_id = doc['doc']['owner_id']
+                    id = doc['doc']['id']
+                    vk.messages.send(
+                        peer_id=event.peer_id,
+                        message=f'Логи пользователя ID {nick} за {day}.{month}.{year}-{dday}.{dmonth}.{dyear}',
+                        attachment=f'doc{owner_id}_{id}',
+                        random_id=0
+                    )
+                elif str(event.message).startswith('/report'):
+                    content = str(event.message).split(' ')
+                    file = open('logs.txt', 'w', encoding='UTF-8')
+                    if int(content[2]) == -7:
+                        nick = content[1]
+                        while True:
+                            try:
+                                reqt = req.get(
+                                    f'http://ulog.union-u.net/nickname.php?iddb={nick}&server=15&day=0&mount=0&year=-7&go=Посмотреть&type=11',
+                                    timeout=10).text  # ДЛЯ ПОИСКА ПО ID
+                                break
+                            except:
+                                pass
+                    else:
+                        nick, day, month, year = content[1], content[2], content[3], content[4]
+                        while True:
+                            try:
+                                reqt = req.get(
+                                    f'http://ulog.union-u.net/nickname.php?iddb={nick}&server=15&day={day}&mount={month}&year={year}&go=Посмотреть&type=11',
+                                    timeout=5).text  # ДЛЯ ПОИСКА ПО ID
+                                break
+                            except:
+                                pass
+                    soup = bs(reqt, 'html.parser').find_all('table')[5]('tr')
+                    arr_soup = str(soup).split('<tr>')
+                    str_soup = ''
+                    for i in range(len(arr_soup)):
+                        str_soup += arr_soup[i] + '\n'
+                    file.write(re.sub(r'<.*?>', '', str_soup))
+                    file.close()
+                    url = vk.docs.getMessagesUploadServer(peer_id=event.peer_id)['upload_url']
+                    request = requests.post(url, files={'file': open('logs.txt', "r", encoding='UTF-8')})
+                    params = {'file': request.json()['file']
+                              }
+                    doc = vk.docs.save(**params)
+                    owner_id = doc['doc']['owner_id']
+                    id = doc['doc']['id']
+                    if int(content[2]) == -7:
+                        message = 'последнюю неделю'
+                    else:
+                        message = f'{day}.{month}.{year}'
+                    vk.messages.send(
+                        peer_id=event.peer_id,
+                        message=f'Репорты администратора ID {nick} за {message}',
+                        attachment=f'doc{owner_id}_{id}',
+                        random_id=0
+                    )
+                elif str(event.message).startswith('/help'):
+                    vk.messages.send(
+                        peer_id=event.peer_id,
+                        message='Команды, выполняемые ботом:\n'
+                                '"/log %i%" - выводит i последних страниц логов сервера\n'
+                                '"/player %id% %day% %month% %year%" - выводит логи пользователя за определенный день\n'
+                                '"/player %id% -7" - выводит логи пользователя за последнюю неделю\n'
+                                '"/gap %id% %d% %m% %y% %d1% %m1% %y1%" - выводит логи пользователя за промежуток времени\n'
+                                '"/report %id% %day% %month% %year%" - выводит репорты за определенный день (только для администраторов)\n'
+                                '"/player %id% -7" - выводит репорты пользователя за последнюю неделю (только для администраторов)\n'
+                                '"/ping" - пинг сайта http://ulog.union-u.net',
+                        random_id=0
+                    )
+                elif str(event.message).startswith('/ping'):
+                    before = time.time()
+                    r = req.get(url='http://ulog.union-u.net/search.php?server=15')
+                    after = time.time()
+                    diff = round((after - before) * 1000)
+                    vk.messages.send(
+                        peer_id=event.peer_id,
+                        message=f'{diff}ms',
+                        random_id=0
+                    )
+                elif str(event.message).startswith("/change"):
+                    req.post(url='http://ulog.union-u.net/db_events_change.php')
+                    reqt = req.get(url='http://ulog.union-u.net').text
+                    if 'DB:OLD' in reqt:
+                        ans = 'Old'
+                    elif 'DB:NEW' in reqt:
+                        ans = 'New'
+                    vk.messages.send(
+                        peer_id=event.peer_id,
+                        message=f'Смена на {ans}',
+                        random_id=0
+                    )
+                elif str(event.message).startswith("/stop") and event.peer_id == 222334255:
+                    exit()
+            except Exception as ex:
+                if 'out of range' in str(ex):
+                    print('ERROR:', ex, 'TIME:', time.asctime())
+                    data = {
+                        'mail': mail,
+                        'pass': passwd,
+                        'login': 'Войти'
+                    }
+                    req.post(url='http://ulog.union-u.net/login.php', data=data)
+                vk.messages.send(
+                    peer_id=event.peer_id,
+                    message='Произошла ошибка',
+                    random_id=0
+                )
+                vk.messages.send(
+                    peer_id=222334255,
+                    message=f'Время: {time.strftime("%x %X")}\nОшибка: {ex}',
+                    random_id=0
+                )
+        elif event.type == VkEventType.MESSAGE_NEW and event.peer_id == 222334255 and str(event.message).startswith(
+                "/stop"):
+            content = str(event.message).split(' ')
+            if len(content) < 2:
+                reason = '0'
+            else:
+                reason = content[1]
+            try:
+                vk.groups.disableOnline(group_id=201188921)
+                print('Turned offline')
+            except Exception:
+                print('Already offline')
+                pass
+            print('Бот отключен,\nпричина:', reason)
+            exit()
+        elif event.type == VkEventType.MESSAGE_NEW and event.to_me and str(event.message).startswith("/"):
+            vk.messages.send(
+                peer_id=event.peer_id,
+                message='Отказано в доступе.',
+                random_id=0
+            )
+
+
+if __name__ == '__main__':
+    auth()
+    main()
+
